@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
-SCHEMA_SQL = """
+SCHEMA_SQLITE = """
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS password_entries (
@@ -44,7 +43,23 @@ CREATE INDEX IF NOT EXISTS idx_entries_created_at ON password_entries(created_at
 CREATE INDEX IF NOT EXISTS idx_features_risklabel ON password_features(AutoRiskLabel);
 """
 
-def get_conn(db_path: str | Path) -> sqlite3.Connection:
+def get_conn(db_path: str | Path):
+    """
+    If st.secrets["DATABASE_URL"] exists -> connect to Postgres (Supabase).
+    Else -> connect to local SQLite.
+    """
+    try:
+        import streamlit as st
+        db_url = st.secrets.get("DATABASE_URL", "").strip()
+    except Exception:
+        db_url = ""
+
+    if db_url.startswith("postgresql://") or db_url.startswith("postgres://"):
+        import psycopg2
+        # psycopg2 reads sslmode from the URL query string (e.g. ?sslmode=require)
+        return psycopg2.connect(db_url)
+
+    import sqlite3
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
@@ -52,6 +67,9 @@ def get_conn(db_path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
-def init_db(conn: sqlite3.Connection) -> None:
-    conn.executescript(SCHEMA_SQL)
-    conn.commit()
+def init_db(conn) -> None:
+    # Only initialize schema automatically for SQLite.
+    # For Supabase/Postgres you already ran the SQL in the dashboard.
+    if conn.__class__.__module__.startswith("sqlite3"):
+        conn.executescript(SCHEMA_SQLITE)
+        conn.commit()
